@@ -1,0 +1,123 @@
+# MD5 Cracker — CUDA Optimization on NVIDIA RTX 4090
+
+A high-throughput, GPU-accelerated MD5 hash cracker developed as the final project for **ME/CS/ECE 759 at the University of Wisconsin–Madison (Spring 2026)**.
+
+This project explores how CUDA kernel optimization, memory layout redesign, and CPU–GPU pipeline parallelism can improve the throughput of dictionary-based MD5 hash cracking.
+
+## Overview
+
+The project started with a basic CUDA implementation and progressively addressed the major performance bottlenecks in the system. The initial implementation achieved **14.49 million hashes per second (MH/s)**. Through a series of architectural and low-level optimizations, the final implementation reached **190.93 MH/s** on an NVIDIA RTX 4090, achieving a **13.18× speedup** over the baseline.
+
+The main lesson is that maximizing GPU performance requires more than optimizing the hash computation itself. Efficient memory access and a sufficiently fast data supply pipeline are equally important.
+
+## Key Optimizations
+
+### 1. Memory Layout: Array of Structures to Structure of Arrays
+
+The baseline implementation uses an Array of Structures (AoS) layout, which leads to inefficient and scattered memory accesses across GPU threads.
+
+The optimized implementation adopts a Structure of Arrays (SoA) layout. Candidate strings are preprocessed and transposed into 16 contiguous `uint32_t` arrays, enabling coalesced memory accesses across GPU warps.
+
+### 2. CUDA Kernel Fusion and Instruction Optimization
+
+The optimized implementation combines MD5 computation and result comparison into a single CUDA kernel, `md5_kernel_soa`, reducing kernel launch overhead and unnecessary intermediate memory operations.
+
+The 64 rounds of MD5 computation are manually unrolled using the `FF`, `GG`, `HH`, and `II` macros. Intermediate states are maintained in registers to reduce loop overhead.
+
+### 3. OpenMP-Accelerated CPU Preprocessing
+
+Profiling revealed that serial CPU-side string padding and SoA transposition could not supply data to the GPU quickly enough.
+
+OpenMP parallelizes these preprocessing operations across CPU cores, reducing the data preparation bottleneck and allowing the GPU to operate more efficiently.
+
+### 4. Asynchronous CUDA Streams and Double Buffering
+
+A dual-stream pipeline overlaps GPU computation with host-to-device data transfers. Meanwhile, the CPU prepares subsequent batches in parallel.
+
+This design improves end-to-end throughput by overlapping data preparation, memory transfer, and hash computation.
+
+### 5. Additional GPU Optimizations
+
+- **Early termination:** An atomic flag allows the computation to stop after a matching hash is found.
+- **Constant memory:** MD5 transformation constants and shift parameters are stored in GPU constant memory.
+- **Register and occupancy optimization:** Intermediate variables are streamlined to reduce register pressure.
+- **Batch processing:** A batch size of 2,097,152 candidates is used to keep the RTX 4090 GPU well utilized.
+
+## Performance Results
+
+The following results were reported for a dictionary containing 100 million entries on an NVIDIA RTX 4090.
+
+| Implementation | Main Optimizations | Throughput | Speedup |
+|---|---|---:|---:|
+| Baseline | Basic CUDA, AoS layout | 14.49 MH/s | 1.00× |
+| Intermediate | SoA layout, memory pre-allocation, kernel unrolling | 21.59 MH/s | 1.49× |
+| Final | OpenMP preprocessing, asynchronous streams, double buffering | 190.93 MH/s | 13.18× |
+
+The results demonstrate that addressing the CPU-side data preparation bottleneck, together with GPU memory and kernel optimizations, can substantially improve overall throughput.
+
+*Performance figures are from the project report and may vary with hardware, compiler settings, and input data.*
+
+## Repository Structure
+
+```text
+MD5_ME759/
+├── md5_old.cu           # Baseline CUDA implementation
+├── md5_openMP.cu        # Final optimized CUDA implementation
+├── wordlist_generator.py # Test dictionary generator
+├── document             # project report
+└── README.md
+```
+
+## Requirements
+
+- NVIDIA GPU with CUDA support
+- NVIDIA CUDA Toolkit (`nvcc`)
+- C++ compiler compatible with the installed CUDA Toolkit
+- OpenMP support in the host compiler for the optimized implementation
+- Python 3 for generating the test dictionary
+
+The reported benchmark was conducted on an NVIDIA RTX 4090.
+
+## Build and Run
+
+### 1. Generate the Test Dictionary
+
+```bash
+python wordlist_generator.py
+```
+
+The generator creates a test dictionary containing 100 million entries, with one candidate per line. The project report uses the MD5 hash of the final generated entry as the target for verification.
+
+### 2. Compile the Optimized Implementation
+
+```bash
+nvcc -O3 -Xcompiler -fopenmp md5_openMP.cu -o md5_openMP
+```
+
+### 3. Run the Cracker
+
+```bash
+./md5_openMP wordlist.txt YOUR_TARGET_MD5
+```
+
+Replace `YOUR_TARGET_MD5` with the target's 32-character hexadecimal MD5 digest. Ensure that the input filename matches the file generated by the dictionary script.
+
+### Baseline Implementation
+
+`md5_old.cu` contains the original implementation used to establish the baseline performance. The two implementations can be compared to examine the effects of the subsequent optimizations.
+
+## Project Context
+
+This project was completed independently as the final project for **ME/CS/ECE 759, University of Wisconsin–Madison, Spring 2026**.
+
+It demonstrates practical experience with:
+
+- CUDA programming and GPU kernel optimization
+- GPU memory access patterns and memory management
+- OpenMP CPU parallelism
+- Asynchronous execution and CPU–GPU pipeline design
+- Performance profiling and bottleneck analysis
+
+## Security Note
+
+This project is intended for educational purposes and authorized hash-testing experiments. MD5 is not suitable for storing passwords securely in modern applications.
