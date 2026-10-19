@@ -63,8 +63,8 @@ The results demonstrate that addressing the CPU-side data preparation bottleneck
 MD5_ME759/
 ├── md5_old.cu           # Baseline CUDA implementation
 ├── md5_openMP.cu        # Final optimized CUDA implementation
+├── project_report.pdf             # project report
 ├── wordlist_generator.py # Test dictionary generator
-├── document             # project report
 └── README.md
 ```
 
